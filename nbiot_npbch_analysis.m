@@ -127,14 +127,14 @@ end
 %% 7. 绘制信道补偿前的QPSK星座图
 fprintf('\n绘制信道补偿前的QPSK星座图...\n');
 
-% 创建主图窗口
-figure('Position', [100, 100, 1600, 800]);
+% 创建主图窗口（只显示两个星座图）
+figure('Position', [100, 100, 1200, 500]);
 
 % 理想QPSK参考点
 qpsk_ref = [1+1i, 1-1i, -1+1i, -1-1i] / sqrt(2);
 
 % 子图1：信道补偿前的星座图
-subplot(2, 2, 1);
+subplot(1, 2, 1);
 scatter(real(npbchRx), imag(npbchRx), 30, 'b', 'filled', 'MarkerFaceAlpha', 0.7);
 grid on;
 axis equal;
@@ -147,9 +147,9 @@ hold on;
 scatter(real(qpsk_ref), imag(qpsk_ref), 120, 'r', 'x', 'LineWidth', 4);
 legend('接收符号', '理想QPSK点', 'Location', 'best');
 
-% 计算并显示EVM
-evm_before = sqrt(mean(abs(npbchRx - qpsk_ref(1)).^2)) * 100; % 简化EVM计算
-text(0.02, 0.98, sprintf('EVM ≈ %.1f%%', evm_before), 'Units', 'normalized', ...
+% 计算并显示EVM（正确方法：找到每个符号最接近的理想点）
+evm_before = calculateEVM(npbchRx, qpsk_ref);
+text(0.02, 0.98, sprintf('EVM = %.1f%%', evm_before), 'Units', 'normalized', ...
      'VerticalAlignment', 'top', 'BackgroundColor', 'white', 'EdgeColor', 'black');
 hold off;
 
@@ -186,7 +186,7 @@ end
 fprintf('\n绘制信道补偿后的QPSK星座图...\n');
 
 % 子图2：信道补偿后的星座图
-subplot(2, 2, 2);
+subplot(1, 2, 2);
 scatter(real(npbchEq), imag(npbchEq), 30, 'g', 'filled', 'MarkerFaceAlpha', 0.7);
 grid on;
 axis equal;
@@ -199,34 +199,10 @@ hold on;
 scatter(real(qpsk_ref), imag(qpsk_ref), 120, 'r', 'x', 'LineWidth', 4);
 legend('均衡后符号', '理想QPSK点', 'Location', 'best');
 
-% 计算并显示改进后的EVM
-evm_after = sqrt(mean(abs(npbchEq - qpsk_ref(1)).^2)) * 100; % 简化EVM计算
-text(0.02, 0.98, sprintf('EVM ≈ %.1f%%', evm_after), 'Units', 'normalized', ...
+% 计算并显示改进后的EVM（正确方法：找到每个符号最接近的理想点）
+evm_after = calculateEVM(npbchEq, qpsk_ref);
+text(0.02, 0.98, sprintf('EVM = %.1f%%', evm_after), 'Units', 'normalized', ...
      'VerticalAlignment', 'top', 'BackgroundColor', 'white', 'EdgeColor', 'black');
-hold off;
-
-% 子图3：幅度对比
-subplot(2, 2, 3);
-plot(1:length(npbchRx), abs(npbchRx), 'b-', 'LineWidth', 1.5, 'DisplayName', '补偿前');
-hold on;
-plot(1:length(npbchEq), abs(npbchEq), 'g-', 'LineWidth', 1.5, 'DisplayName', '补偿后');
-xlabel('符号索引');
-ylabel('幅度');
-title('NPBCH符号幅度对比');
-legend('Location', 'best');
-grid on;
-hold off;
-
-% 子图4：相位对比
-subplot(2, 2, 4);
-plot(1:length(npbchRx), angle(npbchRx)*180/pi, 'b.', 'MarkerSize', 8, 'DisplayName', '补偿前');
-hold on;
-plot(1:length(npbchEq), angle(npbchEq)*180/pi, 'g.', 'MarkerSize', 8, 'DisplayName', '补偿后');
-xlabel('符号索引');
-ylabel('相位 (度)');
-title('NPBCH符号相位对比');
-legend('Location', 'best');
-grid on;
 hold off;
 
 sgtitle(sprintf('NB-IoT NPBCH QPSK星座图分析 (PCID=%d)', detectedPCID), 'FontSize', 14, 'FontWeight', 'bold');
@@ -310,6 +286,43 @@ function result = iif(condition, true_val, false_val)
     else
         result = false_val;
     end
+end
+
+% EVM计算函数
+function evm_percent = calculateEVM(receivedSymbols, referencePoints)
+    % 计算误差矢量幅度(EVM)
+    % receivedSymbols: 接收到的复数符号向量
+    % referencePoints: 理想参考点向量 (如QPSK的4个理想点)
+    % 返回: EVM百分比值
+
+    % 确保输入为列向量
+    receivedSymbols = receivedSymbols(:);
+    referencePoints = referencePoints(:);
+
+    % 为每个接收符号找到最接近的理想参考点
+    numSymbols = length(receivedSymbols);
+    errors = zeros(numSymbols, 1);
+
+    for i = 1:numSymbols
+        % 计算当前符号到所有参考点的距离
+        distances = abs(receivedSymbols(i) - referencePoints);
+
+        % 找到最近的参考点
+        [~, minIdx] = min(distances);
+        closestRef = referencePoints(minIdx);
+
+        % 计算误差矢量
+        errors(i) = receivedSymbols(i) - closestRef;
+    end
+
+    % 计算RMS误差
+    errorPower = mean(abs(errors).^2);
+
+    % 计算参考信号的平均功率
+    refPower = mean(abs(referencePoints).^2);
+
+    % 计算EVM百分比
+    evm_percent = sqrt(errorPower / refPower) * 100;
 end
 
 %% 11. 保存结果和生成总结报告
