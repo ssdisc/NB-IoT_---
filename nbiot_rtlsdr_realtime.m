@@ -226,9 +226,9 @@ legend('相关值', sprintf('检测到的PCID=%d', detectedPCID), 'Location', 'b
 
 % 子图2：最佳PCID的详细相关性
 subplot(2,2,2);
-correlationSamples = 1:length(correlation);
-plot(correlationSamples, abs(correlation), 'g-', 'LineWidth', 1.5);
-xlabel('采样点');
+correlationTimeSamples = (0:length(correlation)-1) / samplingRate * 1000; % 转换为毫秒
+plot(correlationTimeSamples, abs(correlation), 'g-', 'LineWidth', 1.5);
+xlabel('时间 (ms)');
 ylabel('相关值幅度');
 title(sprintf('PCID %d 的相关峰 (帧偏移=%d)', detectedPCID, frameOffset));
 grid on;

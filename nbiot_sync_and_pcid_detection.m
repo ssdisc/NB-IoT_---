@@ -51,22 +51,22 @@ progressStep = round(numPCIDs / 10);
 
 for idx = 1:numPCIDs
     pcid = possiblePCIDs(idx);
-    
+
     % 显示进度
     if mod(idx, progressStep) == 0
         fprintf('检测进度: %d%%\n', round(idx/numPCIDs*100));
     end
-    
+
     try
         % 设置当前测试的小区ID
         enb.NNCellID = pcid;
-        
+
         % 检测帧偏移和相关性
         [frameOffset, correlation] = lteNBDLFrameOffset(enb, rxWaveform);
-        
+
         correlationResults(idx) = max(abs(correlation));
         frameOffsets(idx) = frameOffset;
-        
+
     catch
         % 如果某个PCID检测失败，继续下一个
         correlationResults(idx) = 0;
@@ -118,9 +118,9 @@ legend('相关值', sprintf('检测到的PCID=%d', detectedPCID), 'Location', 'b
 
 % 子图2：最佳PCID的详细相关性
 subplot(2,2,2);
-correlationSamples = 1:length(correlation);
-plot(correlationSamples, abs(correlation), 'g-', 'LineWidth', 1.5);
-xlabel('采样点');
+correlationTimeSamples = (0:length(correlation)-1) / samplingRate * 1000; % 转换为毫秒
+plot(correlationTimeSamples, abs(correlation), 'g-', 'LineWidth', 1.5);
+xlabel('时间 (ms)');
 ylabel('相关值幅度');
 title(sprintf('PCID %d 的相关峰 (帧偏移=%d)', detectedPCID, frameOffset));
 grid on;
@@ -151,58 +151,58 @@ fprintf('生成参考信号进行验证...\n');
 try
     % 由于lteNBPSS和lteNBSSS函数不可用，使用标准LTE函数替代
     % NB-IoT的PCID映射到LTE的小区ID组
-    
+
     % NB-IoT PCID到LTE参数的映射
     % NB-IoT使用不同的PCID范围，这里进行简化映射
     lteCellId = mod(detectedPCID, 504);  % 确保在LTE范围内
-    
+
     % 生成标准LTE的PSS和SSS（作为参考）
     pssSeq = ltePSS(lteCellId);
     sssSeq = lteSSS(lteCellId);
-    
+
     fprintf('使用标准LTE函数生成参考信号\n');
     fprintf('映射后的LTE小区ID: %d\n', lteCellId);
     fprintf('PSS序列长度: %d\n', length(pssSeq));
     fprintf('SSS序列长度: %d\n', length(sssSeq));
-    
+
     % 绘制参考信号
     figure('Position', [150, 150, 1000, 600]);
-    
+
     subplot(2,2,1);
     plot(real(pssSeq), 'b-o', 'MarkerSize', 4);
     xlabel('符号索引');
     ylabel('实部');
     title(sprintf('PSS序列 (映射PCID=%d->%d) - 实部', detectedPCID, lteCellId));
     grid on;
-    
+
     subplot(2,2,2);
     plot(imag(pssSeq), 'r-o', 'MarkerSize', 4);
     xlabel('符号索引');
     ylabel('虚部');
     title(sprintf('PSS序列 (映射PCID=%d->%d) - 虚部', detectedPCID, lteCellId));
     grid on;
-    
+
     subplot(2,2,3);
     plot(real(sssSeq), 'b-o', 'MarkerSize', 4);
     xlabel('符号索引');
     ylabel('实部');
     title(sprintf('SSS序列 (映射PCID=%d->%d) - 实部', detectedPCID, lteCellId));
     grid on;
-    
+
     subplot(2,2,4);
     plot(imag(sssSeq), 'r-o', 'MarkerSize', 4);
     xlabel('符号索引');
     ylabel('虚部');
     title(sprintf('SSS序列 (映射PCID=%d->%d) - 虚部', detectedPCID, lteCellId));
     grid on;
-    
+
     sgtitle('LTE同步信号序列 (NB-IoT参考)', 'FontSize', 14, 'FontWeight', 'bold');
-    
+
     % 添加说明文本
     annotation('textbox', [0.02, 0.02, 0.96, 0.1], ...
         'String', sprintf('注意：由于lteNBPSS/lteNBSSS函数不可用，使用标准LTE函数ltePSS/lteSSS作为参考\nNB-IoT PCID %d 映射到 LTE小区ID %d', detectedPCID, lteCellId), ...
         'FitBoxToText', 'on', 'BackgroundColor', 'yellow', 'EdgeColor', 'red');
-    
+
 catch ME
     fprintf('警告：无法生成参考信号: %s\n', ME.message);
     fprintf('建议：检查LTE Toolbox版本或NB-IoT功能可用性\n');
