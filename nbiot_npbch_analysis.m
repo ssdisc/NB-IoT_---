@@ -11,7 +11,9 @@ fprintf('正在加载NB-IoT同步结果...\n');
 try
     % 加载同步结果
     load('nbiot_sync_results.mat');
+
     detectedPCID = results.detectedPCID;
+
     syncedWaveform = results.syncedWaveform;
     frameOffset = results.frameOffset;
 
