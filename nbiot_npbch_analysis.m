@@ -157,26 +157,81 @@ hold off;
 fprintf('\n进行信道补偿...\n');
 
 try
-    % 进行信道补偿（均衡）
-    if size(npbchHest, 3) == 1
-        % 单天线情况
-        npbchEq = npbchRx ./ npbchHest;
+    % 检查信道估计的维度和有效性
+    fprintf('信道估计维度检查:\n');
+    fprintf('  npbchHest大小: %s\n', mat2str(size(npbchHest)));
+    fprintf('  npbchRx大小: %s\n', mat2str(size(npbchRx)));
+
+    % 确保npbchHest和npbchRx都是列向量
+    npbchHest = npbchHest(:);
+    npbchRx = npbchRx(:);
+
+    % 检查是否有零值或无穷大值的信道估计
+    zeroIndices = (abs(npbchHest) < 1e-10);
+    infIndices = ~isfinite(npbchHest);
+
+    if any(zeroIndices)
+        fprintf('警告: 发现 %d 个接近零的信道估计值\n', sum(zeroIndices));
+    end
+    if any(infIndices)
+        fprintf('警告: 发现 %d 个无效的信道估计值\n', sum(infIndices));
+    end
+
+    % 智能信道补偿：根据信道质量选择补偿策略
+    channelMagnitude = abs(npbchHest);
+    channelPhase = angle(npbchHest);
+    avgChannelMag = mean(channelMagnitude);
+
+    fprintf('  信道质量评估:\n');
+    fprintf('    平均信道幅度: %.6f\n', avgChannelMag);
+    fprintf('    信道幅度标准差: %.6f\n', std(channelMagnitude));
+    fprintf('    最大相位偏移: %.3f 度\n', max(abs(channelPhase)) * 180/pi);
+
+    % 根据信道条件选择补偿策略
+    if avgChannelMag > 0.8 && avgChannelMag < 1.2 && std(channelMagnitude) < 0.1
+        % 信道接近理想，使用MMSE均衡减少噪声放大
+        fprintf('    使用MMSE均衡（信道接近理想）\n');
+
+        % MMSE均衡：H* / (|H|^2 + σ²)
+        snr_est = 1 / (nest + eps);  % 估计信噪比
+        mmse_reg = 1 / snr_est;      % MMSE正则化因子
+
+        npbchEq = conj(npbchHest) .* npbchRx ./ (abs(npbchHest).^2 + mmse_reg);
+
     else
-        % 多天线情况，使用MMSE均衡
-        npbchEq = zeros(size(npbchRx));
-        for i = 1:length(npbchRx)
-            H = squeeze(npbchHest(i, :, :));
-            if size(H, 2) == 1
-                % 单发射天线
-                npbchEq(i) = npbchRx(i) / H;
-            else
-                % 多发射天线MMSE均衡
-                npbchEq(i) = (H' * H + nest * eye(size(H, 2))) \ (H' * npbchRx(i));
-            end
-        end
+        % 信道有明显衰落，使用零强迫均衡
+        fprintf('    使用零强迫均衡（信道有衰落）\n');
+
+        % 零强迫均衡，但使用适当的正则化
+        regularization = max(1e-3, 0.01 * avgChannelMag);  % 自适应正则化
+        npbchEq = npbchRx ./ (npbchHest + regularization * exp(1i * channelPhase));
+    end
+
+    % 对于信道估计为零或无效的位置，使用更保守的处理
+    badIndices = zeroIndices | infIndices;
+    if any(badIndices)
+        fprintf('对 %d 个位置使用保守均衡\n', sum(badIndices));
+        % 对于坏的信道估计，使用原始接收符号（不进行均衡）
+        npbchEq(badIndices) = npbchRx(badIndices);
+    end
+
+    % 检查均衡结果的有效性
+    if any(~isfinite(npbchEq))
+        fprintf('警告: 均衡后发现无效值，使用备用方法\n');
+        % 备用方法：简单的幅度归一化
+        npbchEq = npbchRx ./ abs(npbchHest + eps);
+        npbchEq(~isfinite(npbchEq)) = npbchRx(~isfinite(npbchEq));
     end
 
     fprintf('信道补偿完成\n');
+    fprintf('均衡后符号数量: %d\n', length(npbchEq));
+
+    % 添加信道补偿效果的初步分析
+    fprintf('\n信道补偿效果分析:\n');
+    fprintf('  补偿前符号功率: %.6f\n', mean(abs(npbchRx).^2));
+    fprintf('  补偿后符号功率: %.6f\n', mean(abs(npbchEq).^2));
+    fprintf('  信道估计平均幅度: %.6f\n', mean(abs(npbchHest)));
+    fprintf('  信道估计功率范围: [%.6f, %.6f]\n', min(abs(npbchHest)), max(abs(npbchHest)));
 
 catch ME
     error('信道补偿失败: %s', ME.message);
