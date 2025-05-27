@@ -23,7 +23,7 @@ end
 fprintf('\n配置信号接收参数...\n');
 
 % 接收时间配置（可调参数）
-recordingTime = 0.05;  % 接收时间（秒），增加到0.2秒以获得更稳定的NPBCH解调
+recordingTime = 0.05;  % 接收时间（秒）
 samplingRate = sdrobj.SampleRate;  % 从RTL-SDR对象获取采样率
 samplesPerFrame = sdrobj.SamplesPerFrame;  % 每帧样本数
 
