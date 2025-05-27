@@ -40,7 +40,7 @@ enb.NNCellID = detectedPCID;        % 使用检测到的小区ID
 enb.NBRefP = 1;                     % 窄带参考信号天线端口数
 enb.NSubframe = 0;                  % NPBCH在子帧0传输
 enb.NFrame = 0;                     % 初始帧号
-enb.NBULSubcarrierSpacing = '15kHz'; % 子载波间隔
+enb.NDLRB = 6;                      % NB-IoT固定为6个RB
 enb.OperationMode = 'Standalone';    % 操作模式
 
 % 信道估计配置
@@ -55,13 +55,16 @@ cec.Reference = 'NRS';               % NB-IoT下行信道估计参考信号
 
 fprintf('系统参数配置完成\n');
 
+% 验证NB-IoT配置参数
+validateNBIoTConfig(enb);
+
 %% 3. OFDM解调
 fprintf('\n进行OFDM解调...\n');
 
 try
-    % 使用lteSCFDMADemodulate进行NB-IoT下行OFDM解调
-    % 注意：NB-IoT下行使用与LTE上行相同的OFDM结构
-    rxgrid = lteSCFDMADemodulate(enb, syncedWaveform);
+    % 使用lteOFDMDemodulate进行NB-IoT下行OFDM解调
+    % NB-IoT下行使用标准OFDM调制
+    rxgrid = lteOFDMDemodulate(enb, syncedWaveform);
 
     if isempty(rxgrid)
         error('OFDM解调失败，信号长度不足一个子帧');
@@ -147,8 +150,8 @@ hold on;
 scatter(real(qpsk_ref), imag(qpsk_ref), 120, 'r', 'x', 'LineWidth', 4);
 legend('接收符号', '理想QPSK点', 'Location', 'best');
 
-% 计算并显示EVM
-evm_before = sqrt(mean(abs(npbchRx - qpsk_ref(1)).^2)) * 100; % 简化EVM计算
+% 计算并显示EVM - 正确的QPSK EVM计算
+evm_before = calculateCorrectEVM(npbchRx);
 text(0.02, 0.98, sprintf('EVM ≈ %.1f%%', evm_before), 'Units', 'normalized', ...
      'VerticalAlignment', 'top', 'BackgroundColor', 'white', 'EdgeColor', 'black');
 hold off;
@@ -199,8 +202,8 @@ hold on;
 scatter(real(qpsk_ref), imag(qpsk_ref), 120, 'r', 'x', 'LineWidth', 4);
 legend('均衡后符号', '理想QPSK点', 'Location', 'best');
 
-% 计算并显示改进后的EVM
-evm_after = sqrt(mean(abs(npbchEq - qpsk_ref(1)).^2)) * 100; % 简化EVM计算
+% 计算并显示改进后的EVM - 正确的QPSK EVM计算
+evm_after = calculateCorrectEVM(npbchEq);
 text(0.02, 0.98, sprintf('EVM ≈ %.1f%%', evm_after), 'Units', 'normalized', ...
      'VerticalAlignment', 'top', 'BackgroundColor', 'white', 'EdgeColor', 'black');
 hold off;
@@ -258,30 +261,26 @@ try
 
             % HyperSFN的2个最低有效位 (bits 4-5)
             hypersfn_lsb = bi2de(mib(5:6)', 'left-msb');
-            fprintf('HyperSFN最低2位: %d (二进制: %s)\n', hypersfn_lsb, num2str(mib(5:6)'));
+            fprintf('HyperSFN最低2位: %d (二进制: %s)\n', hypersfn_lsb, num2str(mib(5:6)'));            % 调度信息SIB1-NB (bits 6-10)
+            sib1_sched = bi2de(mib(7:11)', 'left-msb');
+            fprintf('SIB1-NB调度信息: %d (二进制: %s)\n', sib1_sched, num2str(mib(7:11)'));
 
-            % 调度信息SIB1-NB (bits 6-9)
-            sib1_sched = bi2de(mib(7:10)', 'left-msb');
-            fprintf('SIB1-NB调度信息: %d (二进制: %s)\n', sib1_sched, num2str(mib(7:10)'));
+            % 系统信息值标签 (bits 11-14)
+            si_value_tag = bi2de(mib(12:15)', 'left-msb');
+            fprintf('系统信息值标签: %d (二进制: %s)\n', si_value_tag, num2str(mib(12:15)'));
 
-            % 系统信息值标签 (bits 10-13)
-            si_value_tag = bi2de(mib(11:14)', 'left-msb');
-            fprintf('系统信息值标签: %d (二进制: %s)\n', si_value_tag, num2str(mib(11:14)'));
-
-            % 接入禁止 (bit 14)
-            access_barring = mib(15);
+            % 接入禁止 (bit 15)
+            access_barring = mib(16);
             fprintf('接入禁止标志: %d (%s)\n', access_barring, ...
-                    iif(access_barring, '禁止', '允许'));
-
-            % 操作模式信息 (bits 15-16)
-            if length(mib) >= 17
-                op_mode_info = bi2de(mib(16:17)', 'left-msb');
-                fprintf('操作模式信息: %d (二进制: %s)\n', op_mode_info, num2str(mib(16:17)'));
+                    iif(access_barring, '禁止', '允许'));            % 操作模式信息 (bits 16-17)
+            if length(mib) >= 18
+                op_mode_info = bi2de(mib(17:18)', 'left-msb');
+                fprintf('操作模式信息: %d (二进制: %s)\n', op_mode_info, num2str(mib(17:18)'));
             end
 
             % 备用位 (剩余位)
-            if length(mib) > 17
-                spare_bits = mib(18:end);
+            if length(mib) > 18
+                spare_bits = mib(19:end);
                 fprintf('备用位数量: %d\n', length(spare_bits));
             end
 
@@ -312,6 +311,48 @@ function result = iif(condition, true_val, false_val)
     end
 end
 
+% 正确的QPSK EVM计算函数
+function evm_percent = calculateCorrectEVM(rxSymbols)
+    % 正确的QPSK EVM计算
+    qpsk_constellation = [1+1i, 1-1i, -1+1i, -1-1i] / sqrt(2);
+    
+    % 对每个接收符号找最近的理想符号
+    error_power = 0;
+    signal_power = 0;
+    
+    for i = 1:length(rxSymbols)
+        % 计算到所有理想符号的距离
+        distances = abs(rxSymbols(i) - qpsk_constellation);
+        [~, idx] = min(distances);
+        ideal_symbol = qpsk_constellation(idx);
+        
+        % 累计误差功率和信号功率
+        error_power = error_power + abs(rxSymbols(i) - ideal_symbol)^2;
+        signal_power = signal_power + abs(ideal_symbol)^2;
+    end
+    
+    % 计算EVM
+    evm_percent = sqrt(error_power / signal_power) * 100;
+end
+
+% NB-IoT配置验证函数
+function validateNBIoTConfig(enb)
+    % 验证NB-IoT配置参数
+    if ~isfield(enb, 'NNCellID') || enb.NNCellID < 0 || enb.NNCellID > 503
+        error('无效的NB-IoT小区ID，范围应为0-503');
+    end
+    
+    if ~isfield(enb, 'NBRefP') || (enb.NBRefP ~= 1 && enb.NBRefP ~= 2)
+        error('NB-IoT只支持1或2个天线端口');
+    end
+    
+    if ~isfield(enb, 'NDLRB') || enb.NDLRB ~= 6
+        error('NB-IoT固定使用6个RB');
+    end
+    
+    fprintf('NB-IoT配置验证通过\n');
+end
+
 %% 11. 保存结果和生成总结报告
 fprintf('\n保存NPBCH解析结果...\n');
 
@@ -330,12 +371,12 @@ if exist('mib', 'var')
     end
     if length(mib) >= 6
         npbch_results.hypersfn_lsb = bi2de(mib(5:6)', 'left-msb');
+    end    
+    if length(mib) >= 11
+        npbch_results.sib1_sched = bi2de(mib(7:11)', 'left-msb');
     end
-    if length(mib) >= 10
-        npbch_results.sib1_sched = bi2de(mib(7:10)', 'left-msb');
-    end
-    if length(mib) >= 15
-        npbch_results.access_barring = mib(15);
+    if length(mib) >= 16
+        npbch_results.access_barring = mib(16);
     end
 end
 
@@ -359,7 +400,7 @@ fprintf('  - lteNPBCHIndices: 生成NPBCH资源元素索引\n');
 fprintf('  - lteExtractResources: 提取资源元素\n');
 fprintf('  - lteDLChannelEstimate: 信道估计\n');
 fprintf('  - lteNPBCHDecode: NPBCH解码\n');
-fprintf('  - lteSCFDMADemodulate: NB-IoT下行OFDM解调\n');
+fprintf('  - lteOFDMDemodulate: NB-IoT下行OFDM解调\n');
 fprintf('\n--- 信号处理结果 ---\n');
 fprintf('检测到的小区编号PCID: %d\n', detectedPCID);
 fprintf('NPBCH符号数量: %d\n', length(npbchRx));
