@@ -15,13 +15,13 @@ function sdrobj = rtlsdr_setup()
     % NB-IoT带宽为180kHz，采样率设置为1.92MHz（LTE采样率）
     sdrobj.SampleRate = 1.92e6;
 
-    % 设置中心频率（959.8MHz）
+    % 设置中心频率（879.4MHz）
     sdrobj.CenterFrequency = 879.4e6;
-        % sdrobj.CenterFrequency = 959.8e6;
+        % sdrobj.CenterFrequency = 879.4e6;
 
 
     % 设置频率校正因子（ppm）
-    sdrobj.FrequencyCorrection = 21;  % 设备频偏为55ppm
+    sdrobj.FrequencyCorrection = 21;  % 设备频偏为21ppm
 
     % 设置增益模式和增益
     sdrobj.EnableTunerAGC = false;
