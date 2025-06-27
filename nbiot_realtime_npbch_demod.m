@@ -112,7 +112,12 @@ elseif max(abs(rxWaveform)) > 0.95
     warning('接收信号可能存在饱和，建议调整RTL-SDR增益');
 end
 
-%% 5. NB-IoT系统参数配置
+%% 5. 保存实时信号供离线分析
+fprintf('\n保存实时接收的信号以供离线分析...\n');
+save('nbiot_received_signal.mat', 'rxWaveform', 'samplingRate');
+fprintf('信号已保存到 nbiot_received_signal.mat\n');
+
+%% 6. NB-IoT系统参数配置
 fprintf('\n配置NB-IoT系统参数...\n');
 
 % NB-IoT下行配置
@@ -124,7 +129,7 @@ enb.OperationMode = 'Standalone';     % 操作模式
 
 fprintf('NB-IoT系统参数配置完成\n');
 
-%% 6. PCID检测 - 遍历所有可能的小区ID
+%% 7. PCID检测 - 遍历所有可能的小区ID
 fprintf('\n开始PCID检测...\n');
 
 % NB-IoT支持的小区ID范围是0-503
@@ -167,7 +172,7 @@ end
 pcidDetectionTime = toc;
 fprintf('PCID检测完成，耗时: %.2f 秒\n', pcidDetectionTime);
 
-%% 7. 找到最佳PCID
+%% 8. 找到最佳PCID
 [maxCorrelation, maxIdx] = max(correlationResults);
 detectedPCID = possiblePCIDs(maxIdx);
 detectedOffset = frameOffsets(maxIdx);
@@ -187,7 +192,7 @@ if maxCorrelation < 0.1
     fprintf('  4. 增加接收时间以获得更多数据\n');
 end
 
-%% 8. 使用检测到的PCID进行精确同步
+%% 9. 使用检测到的PCID进行精确同步
 fprintf('\n正在进行精确同步...\n');
 enb.NNCellID = detectedPCID;
 
@@ -204,7 +209,7 @@ end
 
 fprintf('同步完成，帧偏移: %d 采样点\n', frameOffset);
 
-%% 9. 绘制相关峰图（使用时间轴）
+%% 10. 绘制相关峰图（使用时间轴）
 fprintf('\n绘制相关峰图...\n');
 
 figure('Position', [100, 100, 1200, 800]);
@@ -249,7 +254,7 @@ grid on;
 
 sgtitle('NB-IoT实时信号同步与PCID检测结果', 'FontSize', 14, 'FontWeight', 'bold');
 
-%% 10. NPBCH解调 - 配置系统参数
+%% 11. NPBCH解调 - 配置系统参数
 fprintf('\n开始NPBCH解调...\n');
 
 % 更新eNodeB配置用于NPBCH解调
@@ -272,7 +277,7 @@ cec.Reference = 'NRS';               % NB-IoT下行信道估计参考信号
 
 fprintf('NPBCH解调参数配置完成\n');
 
-%% 11. OFDM解调
+%% 12. OFDM解调
 fprintf('\n进行OFDM解调...\n');
 
 try
@@ -291,7 +296,7 @@ catch ME
     error('OFDM解调失败: %s', ME.message);
 end
 
-%% 12. 生成NPBCH资源元素索引
+%% 13. 生成NPBCH资源元素索引
 fprintf('\n生成NPBCH资源元素索引...\n');
 
 try
@@ -303,7 +308,7 @@ catch ME
     error('NPBCH索引生成失败: %s', ME.message);
 end
 
-%% 13. 提取NPBCH资源元素
+%% 14. 提取NPBCH资源元素
 fprintf('\n提取NPBCH资源元素...\n');
 
 try
@@ -323,7 +328,7 @@ catch ME
     error('NPBCH资源元素提取失败: %s', ME.message);
 end
 
-%% 14. 信道估计
+%% 15. 信道估计
 fprintf('\n进行信道估计...\n');
 
 try
@@ -341,7 +346,7 @@ catch ME
     error('信道估计失败: %s', ME.message);
 end
 
-%% 15. 绘制信道补偿前后的QPSK星座图
+%% 16. 绘制信道补偿前后的QPSK星座图
 fprintf('\n绘制QPSK星座图...\n');
 
 % 创建星座图窗口
@@ -370,7 +375,7 @@ text(0.02, 0.98, sprintf('EVM = %.1f%%', evm_before), 'Units', 'normalized', ...
      'VerticalAlignment', 'top', 'BackgroundColor', 'white', 'EdgeColor', 'black');
 hold off;
 
-%% 16. 信道补偿
+%% 17. 信道补偿
 fprintf('\n进行信道补偿...\n');
 
 try
@@ -447,7 +452,7 @@ catch ME
     error('信道补偿失败: %s', ME.message);
 end
 
-%% 17. 绘制信道补偿后的QPSK星座图
+%% 18. 绘制信道补偿后的QPSK星座图
 fprintf('\n绘制信道补偿后的QPSK星座图...\n');
 
 % 子图2：信道补偿后的星座图
@@ -472,7 +477,7 @@ hold off;
 
 sgtitle(sprintf('NB-IoT实时NPBCH QPSK星座图分析 (PCID=%d)', detectedPCID), 'FontSize', 14, 'FontWeight', 'bold');
 
-%% 18. NPBCH解码和MIB解析
+%% 19. NPBCH解码和MIB解析
 fprintf('\n进行NPBCH解码...\n');
 
 try
@@ -547,7 +552,7 @@ catch ME
     decodingSuccess = false;
 end
 
-%% 19. 保存实时解调结果
+%% 20. 保存实时解调结果
 fprintf('\n保存实时NPBCH解调结果...\n');
 
 realtime_results = struct();
@@ -605,7 +610,7 @@ end
 
 save('nbiot_realtime_npbch_results.mat', 'realtime_results');
 
-%% 20. 生成详细的实时处理报告
+%% 21. 生成详细的实时处理报告
 fprintf('\n');
 fprintf('=====================================\n');
 fprintf('   NB-IoT实时NPBCH解调处理报告\n');

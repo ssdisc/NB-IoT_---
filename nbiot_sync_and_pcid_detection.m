@@ -8,7 +8,7 @@ clear; clc; close all;
 %% 1. 加载NB-IoT信号数据
 fprintf('正在加载NB-IoT信号数据...\n');
 try
-    load('nbiot_signalNBRefP1.mat');
+    load('nbiot_received_signal.mat');
     % 假设变量名为signal，如果不是请根据实际情况修改
     if exist('signal', 'var')
         rxWaveform = signal;
