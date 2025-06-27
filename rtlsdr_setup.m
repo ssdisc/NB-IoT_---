@@ -21,10 +21,10 @@ function sdrobj = rtlsdr_setup()
 
 
     % 设置频率校正因子（ppm）
-    sdrobj.FrequencyCorrection = 55;  % 设备频偏为55ppm
+    sdrobj.FrequencyCorrection = 21;  % 设备频偏为55ppm
 
     % 设置增益模式和增益
-    sdrobj.EnableTunerAGC = true;
+    sdrobj.EnableTunerAGC = false;
     sdrobj.TunerGain = 80;  % 可根据实际情况调整
 
     % 设置帧长度
