@@ -2,8 +2,7 @@
 % 功能：使用RTL-SDR实时接收NB-IoT信号，进行PCID检测、同步和NPBCH解调
 % 特点：集成信号接收、同步、解调和MIB解析的完整流程
 % 要求：只使用MATLAB官方LTE工具箱函数，严格按照3GPP标准
-% 作者：AI Assistant
-% 日期：2024
+% 日期：2025
 
 clear; clc; close all;
 

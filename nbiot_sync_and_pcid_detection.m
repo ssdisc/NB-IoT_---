@@ -1,7 +1,6 @@
 %% NB-IoT下行信号同步与PCID检测脚本
 % 功能：实现NB-IoT下行信号同步，绘制相关峰图，检测小区编号PCID
-% 作者：AI Assistant
-% 日期：2024
+% 日期：2025
 
 clear; clc; close all;
 

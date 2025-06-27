@@ -1,8 +1,7 @@
 %% NB-IoT NPBCH（窄带物理广播信道）解析脚本
 % 功能：严格按照3GPP标准解析NPBCH，绘制信道补偿前后QPSK星座图，解码SFN高4位
 % 要求：只使用MATLAB官方LTE工具箱函数，禁止人为构造数据
-% 作者：AI Assistant
-% 日期：2024
+% 日期：2025
 
 clear; clc; close all;
 
