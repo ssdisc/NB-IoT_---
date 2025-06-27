@@ -31,7 +31,7 @@ samplesPerFrame = sdrobj.SamplesPerFrame;  % 每帧样本数
 totalSamples = recordingTime * samplingRate;
 numFrames = ceil(totalSamples / samplesPerFrame);
 
-fprintf('接收时间: %.1f 秒\n', recordingTime);
+fprintf('接收时间: %.2f 秒\n', recordingTime);
 fprintf('采样率: %.2f MHz\n', samplingRate/1e6);
 fprintf('预计接收样本数: %d\n', totalSamples);
 fprintf('需要接收帧数: %d\n', numFrames);
