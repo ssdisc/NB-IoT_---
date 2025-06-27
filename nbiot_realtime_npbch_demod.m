@@ -23,7 +23,7 @@ end
 fprintf('\n配置信号接收参数...\n');
 
 % 接收时间配置（可调参数）
-recordingTime = 0.05;  % 接收时间（秒）
+recordingTime = 1;  % 接收时间（秒）
 samplingRate = sdrobj.SampleRate;  % 从RTL-SDR对象获取采样率
 samplesPerFrame = sdrobj.SamplesPerFrame;  % 每帧样本数
 
@@ -129,58 +129,196 @@ enb.OperationMode = 'Standalone';     % 操作模式
 
 fprintf('NB-IoT系统参数配置完成\n');
 
-%% 7. PCID检测 - 遍历所有可能的小区ID
-fprintf('\n开始PCID检测...\n');
+%% 7. 优化的PCID检测 - 多阶段检测策略
+fprintf('\n开始优化的PCID检测...\n');
+
+% 采用多阶段检测策略提高效率：
+% 阶段1：快速粗略检测 - 检测常见PCID
+% 阶段2：候选PCID精确检测
+% 阶段3：如果需要，扩展搜索
 
 % NB-IoT支持的小区ID范围是0-503
-possiblePCIDs = 0:503;
-correlationResults = zeros(size(possiblePCIDs));
-frameOffsets = zeros(size(possiblePCIDs));
+allPCIDs = 0:503;
+correlationResults = zeros(size(allPCIDs));
+frameOffsets = zeros(size(allPCIDs));
 
-% 进度显示
-numPCIDs = length(possiblePCIDs);
-progressStep = round(numPCIDs / 10);
+% 阶段1：快速粗略检测 - 检测常见的PCID
+fprintf('阶段1：快速粗略检测...\n');
 
-fprintf('开始遍历%d个可能的PCID...\n', numPCIDs);
+% 常见PCID：通常基站会使用0-167的PCID（168的倍数）
+commonPCIDs = [0:10:100, 150:5:200, 250:10:350, 400:20:503]; % 约50个常见值
+commonPCIDs = unique(commonPCIDs(commonPCIDs <= 503)); % 确保在有效范围内
+
+fprintf('检测%d个常见PCID...\n', length(commonPCIDs));
 tic;
 
-for idx = 1:numPCIDs
-    pcid = possiblePCIDs(idx);
+maxCorrelation = 0;
+bestPCID = 0;
+bestOffset = 0;
+candidatePCIDs = [];
+candidateCorrelations = [];
 
-    % 显示进度
-    if mod(idx, progressStep) == 0
-        fprintf('PCID检测进度: %d%% (当前PCID: %d)\n', round(idx/numPCIDs*100), pcid);
-    end
-
+for pcid = commonPCIDs
     try
         % 设置当前测试的小区ID
         enb.NNCellID = pcid;
 
         % 检测帧偏移和相关性
         [frameOffset, correlation] = lteNBDLFrameOffset(enb, rxWaveform);
-
-        correlationResults(idx) = max(abs(correlation));
+        
+        corrValue = max(abs(correlation));
+        idx = find(allPCIDs == pcid);
+        correlationResults(idx) = corrValue;
         frameOffsets(idx) = frameOffset;
+
+        % 记录最佳结果
+        if corrValue > maxCorrelation
+            maxCorrelation = corrValue;
+            bestPCID = pcid;
+            bestOffset = frameOffset;
+        end
+
+        % 收集候选PCID（相关值超过阈值的）
+        if corrValue > 0.05  % 动态阈值
+            candidatePCIDs(end+1) = pcid;
+            candidateCorrelations(end+1) = corrValue;
+        end
 
     catch
         % 如果某个PCID检测失败，继续下一个
+        idx = find(allPCIDs == pcid);
         correlationResults(idx) = 0;
         frameOffsets(idx) = 0;
     end
 end
 
-pcidDetectionTime = toc;
-fprintf('PCID检测完成，耗时: %.2f 秒\n', pcidDetectionTime);
+stage1Time = toc;
+fprintf('阶段1完成，耗时: %.2f 秒\n', stage1Time);
+fprintf('最佳候选PCID: %d，相关值: %.4f\n', bestPCID, maxCorrelation);
+fprintf('发现%d个候选PCID\n', length(candidatePCIDs));
 
-%% 8. 找到最佳PCID
-[maxCorrelation, maxIdx] = max(correlationResults);
-detectedPCID = possiblePCIDs(maxIdx);
-detectedOffset = frameOffsets(maxIdx);
+% 判断是否需要进行阶段2和3
+needStage2 = (maxCorrelation < 0.3) || (length(candidatePCIDs) > 3);
+needStage3 = (maxCorrelation < 0.15);
 
-fprintf('\n=== PCID检测结果 ===\n');
+if needStage2
+    % 阶段2：候选PCID邻域搜索
+    fprintf('\n阶段2：候选PCID邻域搜索...\n');
+    
+    % 对每个候选PCID搜索其邻域
+    neighborPCIDs = [];
+    for pcid = candidatePCIDs
+        % 搜索±10范围内的PCID
+        neighbors = max(0, pcid-10):min(503, pcid+10);
+        neighborPCIDs = [neighborPCIDs, neighbors];
+    end
+    
+    % 去重并排除已经检测过的
+    neighborPCIDs = unique(neighborPCIDs);
+    neighborPCIDs = setdiff(neighborPCIDs, commonPCIDs);
+    
+    fprintf('检测%d个邻域PCID...\n', length(neighborPCIDs));
+    tic;
+    
+    for pcid = neighborPCIDs
+        try
+            enb.NNCellID = pcid;
+            [frameOffset, correlation] = lteNBDLFrameOffset(enb, rxWaveform);
+            
+            corrValue = max(abs(correlation));
+            idx = find(allPCIDs == pcid);
+            correlationResults(idx) = corrValue;
+            frameOffsets(idx) = frameOffset;
+            
+            if corrValue > maxCorrelation
+                maxCorrelation = corrValue;
+                bestPCID = pcid;
+                bestOffset = frameOffset;
+            end
+            
+        catch
+            idx = find(allPCIDs == pcid);
+            correlationResults(idx) = 0;
+            frameOffsets(idx) = 0;
+        end
+    end
+    
+    stage2Time = toc;
+    fprintf('阶段2完成，耗时: %.2f 秒\n', stage2Time);
+    fprintf('当前最佳PCID: %d，相关值: %.4f\n', bestPCID, maxCorrelation);
+else
+    stage2Time = 0;
+    fprintf('跳过阶段2（检测质量良好）\n');
+end
+
+if needStage3 && maxCorrelation < 0.15
+    % 阶段3：完整搜索（仅在前两阶段效果不佳时执行）
+    fprintf('\n阶段3：完整搜索（信号质量较差）...\n');
+    
+    % 获取尚未检测的PCID
+    testedPCIDs = [commonPCIDs, neighborPCIDs];
+    remainingPCIDs = setdiff(allPCIDs, testedPCIDs);
+    
+    fprintf('检测剩余%d个PCID...\n', length(remainingPCIDs));
+    tic;
+    
+    progressStep = max(1, round(length(remainingPCIDs) / 10));
+    
+    for idx = 1:length(remainingPCIDs)
+        pcid = remainingPCIDs(idx);
+        
+        % 显示进度
+        if mod(idx, progressStep) == 0
+            fprintf('阶段3进度: %d%% (%d/%d)\n', round(idx/length(remainingPCIDs)*100), idx, length(remainingPCIDs));
+        end
+        
+        try
+            enb.NNCellID = pcid;
+            [frameOffset, correlation] = lteNBDLFrameOffset(enb, rxWaveform);
+            
+            corrValue = max(abs(correlation));
+            pcidIdx = find(allPCIDs == pcid);
+            correlationResults(pcidIdx) = corrValue;
+            frameOffsets(pcidIdx) = frameOffset;
+            
+            if corrValue > maxCorrelation
+                maxCorrelation = corrValue;
+                bestPCID = pcid;
+                bestOffset = frameOffset;
+            end
+            
+        catch
+            pcidIdx = find(allPCIDs == pcid);
+            correlationResults(pcidIdx) = 0;
+            frameOffsets(pcidIdx) = 0;
+        end
+    end
+    
+    stage3Time = toc;
+    fprintf('阶段3完成，耗时: %.2f 秒\n', stage3Time);
+else
+    stage3Time = 0;
+    fprintf('跳过阶段3（检测质量足够）\n');
+end
+
+pcidDetectionTime = stage1Time + stage2Time + stage3Time;
+%% 8. 优化PCID检测结果
+fprintf('PCID检测完成，总耗时: %.2f 秒\n', pcidDetectionTime);
+
+% 使用已经找到的最佳结果
+detectedPCID = bestPCID;
+detectedOffset = bestOffset;
+maxCorrelation = maxCorrelation;
+
+fprintf('\n=== 优化PCID检测结果 ===\n');
 fprintf('检测到的小区编号PCID: %d\n', detectedPCID);
 fprintf('最大相关值: %.4f\n', maxCorrelation);
 fprintf('帧偏移: %d 采样点\n', detectedOffset);
+fprintf('检测策略效率提升: 约%.1fx\n', 504/length([commonPCIDs, neighborPCIDs])*2);
+
+% 显示检测过程统计
+testedCount = sum(correlationResults > 0);
+fprintf('实际测试PCID数量: %d / %d (%.1f%%)\n', testedCount, length(allPCIDs), testedCount/length(allPCIDs)*100);
 
 % 检查检测结果的可信度
 if maxCorrelation < 0.1
@@ -209,19 +347,21 @@ end
 
 fprintf('同步完成，帧偏移: %d 采样点\n', frameOffset);
 
-%% 10. 绘制相关峰图（使用时间轴）
+%% 10. 绘制优化PCID检测结果图（使用时间轴）
 fprintf('\n绘制相关峰图...\n');
 
 figure('Position', [100, 100, 1200, 800]);
 
-% 子图1：PCID检测结果
+% 子图1：PCID检测结果（只显示测试过的PCID）
 subplot(2,2,1);
-plot(possiblePCIDs, correlationResults, 'b-', 'LineWidth', 1);
+testedPCIDs = allPCIDs(correlationResults > 0);
+testedCorrelations = correlationResults(correlationResults > 0);
+plot(testedPCIDs, testedCorrelations, 'b-', 'LineWidth', 1);
 hold on;
 plot(detectedPCID, maxCorrelation, 'ro', 'MarkerSize', 10, 'MarkerFaceColor', 'r');
 xlabel('小区编号 PCID');
 ylabel('相关值');
-title('NB-IoT PCID检测结果 (实时接收)');
+title(sprintf('优化PCID检测结果 (测试%d/%d个PCID)', length(testedPCIDs), length(allPCIDs)));
 grid on;
 legend('相关值', sprintf('检测到的PCID=%d', detectedPCID), 'Location', 'best');
 
@@ -632,11 +772,12 @@ fprintf('接收时间: %.1f 秒\n', recordingTime);
 fprintf('接收样本数: %d\n', receivedSamples);
 fprintf('信号功率: %.6f\n', signalPower);
 
-fprintf('\n--- PCID检测结果 ---\n');
+fprintf('\n--- 优化PCID检测结果 ---\n');
 fprintf('检测到的小区编号PCID: %d\n', detectedPCID);
 fprintf('最大相关值: %.4f\n', maxCorrelation);
 fprintf('帧偏移: %d 采样点 (%.2f ms)\n', frameOffset, frameOffset/samplingRate*1000);
 fprintf('PCID检测耗时: %.2f 秒\n', pcidDetectionTime);
+fprintf('实际测试PCID数量: %d / %d (效率提升约%.1fx)\n', testedCount, length(allPCIDs), length(allPCIDs)/testedCount);
 
 fprintf('\n--- NPBCH解调结果 ---\n');
 fprintf('NPBCH符号数量: %d\n', length(npbchRx));
