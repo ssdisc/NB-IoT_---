@@ -392,6 +392,9 @@ title('同步后信号 (实部)');
 grid on;
 
 sgtitle('NB-IoT实时信号同步与PCID检测结果', 'FontSize', 14, 'FontWeight', 'bold');
+% 自动保存当前图形
+timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+saveas(gcf, ['figure_', timestamp, '.png']);
 
 %% 11. NPBCH解调 - 配置系统参数
 fprintf('\n开始NPBCH解调...\n');
@@ -609,6 +612,9 @@ scatter(real(qpsk_ref), imag(qpsk_ref), 120, 'r', 'x', 'LineWidth', 4);
 legend('均衡后符号', '理想QPSK点', 'Location', 'best');
 
 % 计算并显示改进后的EVM（修正的计算方法）
+% 自动保存当前图形
+timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+saveas(gcf, ['figure_', timestamp, '.png']);
 evm_after = calculateEVM(npbchEq, qpsk_ref);
 text(0.02, 0.98, sprintf('EVM = %.1f%%', evm_after), 'Units', 'normalized', ...
      'VerticalAlignment', 'top', 'BackgroundColor', 'white', 'EdgeColor', 'black');

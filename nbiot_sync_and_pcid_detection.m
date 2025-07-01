@@ -7,7 +7,7 @@ clear; clc; close all;
 %% 1. 加载NB-IoT信号数据
 fprintf('正在加载NB-IoT信号数据...\n');
 try
-    load('..\nbiot_received_signal.mat');
+    load('nbiot_received_signal.mat');
     % 假设变量名为signal，如果不是请根据实际情况修改
     if exist('signal', 'var')
         rxWaveform = signal;
@@ -290,6 +290,9 @@ title('同步后信号 (实部)');
 grid on;
 
 sgtitle('NB-IoT下行信号同步与PCID检测结果', 'FontSize', 14, 'FontWeight', 'bold');
+% 自动保存当前图形
+timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+saveas(gcf, ['figure_', timestamp, '.png']);
 
 %% 7. 生成PSS和SSS参考信号进行验证
 fprintf('生成参考信号进行验证...\n');
@@ -337,6 +340,9 @@ try
 
     subplot(2,2,4);
     plot(imag(sssSeq), 'r-o', 'MarkerSize', 4);
+% 自动保存当前图形
+timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+saveas(gcf, ['figure_', timestamp, '.png']);
     xlabel('符号索引');
     ylabel('虚部');
     title(sprintf('SSS序列 (映射PCID=%d->%d) - 虚部', detectedPCID, lteCellId));

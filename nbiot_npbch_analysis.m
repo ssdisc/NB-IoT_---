@@ -262,6 +262,9 @@ text(0.02, 0.98, sprintf('EVM = %.1f%%', evm_after), 'Units', 'normalized', ...
 hold off;
 
 sgtitle(sprintf('NB-IoT NPBCH QPSK星座图分析 (PCID=%d)', detectedPCID), 'FontSize', 14, 'FontWeight', 'bold');
+% 自动保存当前图形
+timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+saveas(gcf, ['figure_', timestamp, '.png']);
 
 %% 10. NPBCH解码和MIB解析
 fprintf('\n进行NPBCH解码...\n');
