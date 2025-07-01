@@ -221,7 +221,7 @@ detectedOffset = bestOffset;
 fprintf('\n=== 优化PCID检测结果 ===\n');
 fprintf('检测到的小区编号PCID: %d\n', detectedPCID);
 fprintf('最大相关值: %.4f\n', maxCorrelation);
-fprintf('帧偏移: %d 采样点\n', detectedOffset);
+fprintf('帧偏移: %d 采样点 (%.2f ms)\n', detectedOffset, detectedOffset/samplingRate*1000);
 
 % 显示检测过程统计
 testedCount = sum(correlationResults > 0);
@@ -242,7 +242,7 @@ else
     syncedWaveform = rxWaveform;
 end
 
-fprintf('同步完成，帧偏移: %d 采样点\n', frameOffset);
+fprintf('同步完成，帧偏移: %d 采样点 (%.2f ms)\n', frameOffset, frameOffset/samplingRate*1000);
 
 %% 6. 绘制优化PCID检测结果图
 fprintf('绘制相关峰图...\n');
@@ -268,7 +268,7 @@ correlationTimeSamples = (0:length(correlation)-1) / samplingRate * 1000; % 转�
 plot(correlationTimeSamples, abs(correlation), 'g-', 'LineWidth', 1.5);
 xlabel('时间 (ms)');
 ylabel('相关值幅度');
-title(sprintf('PCID %d 的相关峰 (帧偏移=%d)', detectedPCID, frameOffset));
+title(sprintf('PCID %d 的相关峰 (帧偏移=%.2fms)', detectedPCID, frameOffset/samplingRate*1000));
 grid on;
 
 % 子图3：原始信号时域
@@ -306,8 +306,12 @@ try
     lteCellId = mod(detectedPCID, 504);  % 确保在LTE范围内
 
     % 生成标准LTE的PSS和SSS（作为参考）
-    pssSeq = ltePSS(lteCellId);
-    sssSeq = lteSSS(lteCellId);
+    % 创建包含NCellID字段的结构体
+    enb_lte = struct('NCellID', lteCellId);
+    
+    % 使用结构体参数调用函数
+    pssSeq = ltePSS(enb_lte);
+    sssSeq = lteSSS(enb_lte);
 
     fprintf('使用标准LTE函数生成参考信号\n');
     fprintf('映射后的LTE小区ID: %d\n', lteCellId);
