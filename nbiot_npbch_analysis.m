@@ -471,11 +471,6 @@ else
     fprintf('原因: CRC校验错误\n');
 end
 
-fprintf('\n--- 处理验证 ---\n');
-fprintf('严格按照3GPP标准: ✓\n');
-fprintf('只使用官方LTE工具箱函数: ✓\n');
-fprintf('基于真实信号处理: ✓\n');
-fprintf('禁止人为构造数据: ✓\n');
 
 fprintf('\n--- 输出文件 ---\n');
 fprintf('星座图: MATLAB图形窗口\n');
