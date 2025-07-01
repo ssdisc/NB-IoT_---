@@ -1,8 +1,7 @@
 %% NB-IoT NPBCH（窄带物理广播信道）解析脚本
 % 功能：严格按照3GPP标准解析NPBCH，绘制信道补偿前后QPSK星座图，解码SFN高4位
 % 要求：只使用MATLAB官方LTE工具箱函数，禁止人为构造数据
-% 作者：AI Assistant
-% 日期：2024
+% 日期：2025
 
 clear; clc; close all;
 
@@ -11,7 +10,9 @@ fprintf('正在加载NB-IoT同步结果...\n');
 try
     % 加载同步结果
     load('nbiot_sync_results.mat');
+
     detectedPCID = results.detectedPCID;
+
     syncedWaveform = results.syncedWaveform;
     frameOffset = results.frameOffset;
 
@@ -130,14 +131,14 @@ end
 %% 7. 绘制信道补偿前的QPSK星座图
 fprintf('\n绘制信道补偿前的QPSK星座图...\n');
 
-% 创建主图窗口
-figure('Position', [100, 100, 1600, 800]);
+% 创建主图窗口（只显示两个星座图）
+figure('Position', [100, 100, 1200, 500]);
 
 % 理想QPSK参考点
 qpsk_ref = [1+1i, 1-1i, -1+1i, -1-1i] / sqrt(2);
 
 % 子图1：信道补偿前的星座图
-subplot(2, 2, 1);
+subplot(1, 2, 1);
 scatter(real(npbchRx), imag(npbchRx), 30, 'b', 'filled', 'MarkerFaceAlpha', 0.7);
 grid on;
 axis equal;
@@ -150,8 +151,8 @@ hold on;
 scatter(real(qpsk_ref), imag(qpsk_ref), 120, 'r', 'x', 'LineWidth', 4);
 legend('接收符号', '理想QPSK点', 'Location', 'best');
 
-% 计算并显示EVM - 正确的QPSK EVM计算
-evm_before = calculateCorrectEVM(npbchRx);
+% 计算并显示EVM
+evm_before = sqrt(mean(abs(npbchRx - qpsk_ref(1)).^2)) * 100; % 简化EVM计算
 text(0.02, 0.98, sprintf('EVM ≈ %.1f%%', evm_before), 'Units', 'normalized', ...
      'VerticalAlignment', 'top', 'BackgroundColor', 'white', 'EdgeColor', 'black');
 hold off;
@@ -160,26 +161,81 @@ hold off;
 fprintf('\n进行信道补偿...\n');
 
 try
-    % 进行信道补偿（均衡）
-    if size(npbchHest, 3) == 1
-        % 单天线情况
-        npbchEq = npbchRx ./ npbchHest;
+    % 检查信道估计的维度和有效性
+    fprintf('信道估计维度检查:\n');
+    fprintf('  npbchHest大小: %s\n', mat2str(size(npbchHest)));
+    fprintf('  npbchRx大小: %s\n', mat2str(size(npbchRx)));
+
+    % 确保npbchHest和npbchRx都是列向量
+    npbchHest = npbchHest(:);
+    npbchRx = npbchRx(:);
+
+    % 检查是否有零值或无穷大值的信道估计
+    zeroIndices = (abs(npbchHest) < 1e-10);
+    infIndices = ~isfinite(npbchHest);
+
+    if any(zeroIndices)
+        fprintf('警告: 发现 %d 个接近零的信道估计值\n', sum(zeroIndices));
+    end
+    if any(infIndices)
+        fprintf('警告: 发现 %d 个无效的信道估计值\n', sum(infIndices));
+    end
+
+    % 智能信道补偿：根据信道质量选择补偿策略
+    channelMagnitude = abs(npbchHest);
+    channelPhase = angle(npbchHest);
+    avgChannelMag = mean(channelMagnitude);
+
+    fprintf('  信道质量评估:\n');
+    fprintf('    平均信道幅度: %.6f\n', avgChannelMag);
+    fprintf('    信道幅度标准差: %.6f\n', std(channelMagnitude));
+    fprintf('    最大相位偏移: %.3f 度\n', max(abs(channelPhase)) * 180/pi);
+
+    % 根据信道条件选择补偿策略
+    if avgChannelMag > 0.8 && avgChannelMag < 1.2 && std(channelMagnitude) < 0.1
+        % 信道接近理想，使用MMSE均衡减少噪声放大
+        fprintf('    使用MMSE均衡（信道接近理想）\n');
+
+        % MMSE均衡：H* / (|H|^2 + σ²)
+        snr_est = 1 / (nest + eps);  % 估计信噪比
+        mmse_reg = 1 / snr_est;      % MMSE正则化因子
+
+        npbchEq = conj(npbchHest) .* npbchRx ./ (abs(npbchHest).^2 + mmse_reg);
+
     else
-        % 多天线情况，使用MMSE均衡
-        npbchEq = zeros(size(npbchRx));
-        for i = 1:length(npbchRx)
-            H = squeeze(npbchHest(i, :, :));
-            if size(H, 2) == 1
-                % 单发射天线
-                npbchEq(i) = npbchRx(i) / H;
-            else
-                % 多发射天线MMSE均衡
-                npbchEq(i) = (H' * H + nest * eye(size(H, 2))) \ (H' * npbchRx(i));
-            end
-        end
+        % 信道有明显衰落，使用零强迫均衡
+        fprintf('    使用零强迫均衡（信道有衰落）\n');
+
+        % 零强迫均衡，但使用适当的正则化
+        regularization = max(1e-3, 0.01 * avgChannelMag);  % 自适应正则化
+        npbchEq = npbchRx ./ (npbchHest + regularization * exp(1i * channelPhase));
+    end
+
+    % 对于信道估计为零或无效的位置，使用更保守的处理
+    badIndices = zeroIndices | infIndices;
+    if any(badIndices)
+        fprintf('对 %d 个位置使用保守均衡\n', sum(badIndices));
+        % 对于坏的信道估计，使用原始接收符号（不进行均衡）
+        npbchEq(badIndices) = npbchRx(badIndices);
+    end
+
+    % 检查均衡结果的有效性
+    if any(~isfinite(npbchEq))
+        fprintf('警告: 均衡后发现无效值，使用备用方法\n');
+        % 备用方法：简单的幅度归一化
+        npbchEq = npbchRx ./ abs(npbchHest + eps);
+        npbchEq(~isfinite(npbchEq)) = npbchRx(~isfinite(npbchEq));
     end
 
     fprintf('信道补偿完成\n');
+    fprintf('均衡后符号数量: %d\n', length(npbchEq));
+
+    % 添加信道补偿效果的初步分析
+    fprintf('\n信道补偿效果分析:\n');
+    fprintf('  补偿前符号功率: %.6f\n', mean(abs(npbchRx).^2));
+    fprintf('  补偿后符号功率: %.6f\n', mean(abs(npbchEq).^2));
+    fprintf('  信道估计平均幅度: %.6f\n', mean(abs(npbchHest)));
+    fprintf('  信道估计功率范围: [%.6f, %.6f]\n', min(abs(npbchHest)), max(abs(npbchHest)));
 
 catch ME
     error('信道补偿失败: %s', ME.message);
@@ -189,7 +245,7 @@ end
 fprintf('\n绘制信道补偿后的QPSK星座图...\n');
 
 % 子图2：信道补偿后的星座图
-subplot(2, 2, 2);
+subplot(1, 2, 2);
 scatter(real(npbchEq), imag(npbchEq), 30, 'g', 'filled', 'MarkerFaceAlpha', 0.7);
 grid on;
 axis equal;
@@ -202,37 +258,16 @@ hold on;
 scatter(real(qpsk_ref), imag(qpsk_ref), 120, 'r', 'x', 'LineWidth', 4);
 legend('均衡后符号', '理想QPSK点', 'Location', 'best');
 
-% 计算并显示改进后的EVM - 正确的QPSK EVM计算
-evm_after = calculateCorrectEVM(npbchEq);
+% 计算并显示改进后的EVM
+evm_after = sqrt(mean(abs(npbchEq - qpsk_ref(1)).^2)) * 100; % 简化EVM计算
 text(0.02, 0.98, sprintf('EVM ≈ %.1f%%', evm_after), 'Units', 'normalized', ...
      'VerticalAlignment', 'top', 'BackgroundColor', 'white', 'EdgeColor', 'black');
 hold off;
 
-% 子图3：幅度对比
-subplot(2, 2, 3);
-plot(1:length(npbchRx), abs(npbchRx), 'b-', 'LineWidth', 1.5, 'DisplayName', '补偿前');
-hold on;
-plot(1:length(npbchEq), abs(npbchEq), 'g-', 'LineWidth', 1.5, 'DisplayName', '补偿后');
-xlabel('符号索引');
-ylabel('幅度');
-title('NPBCH符号幅度对比');
-legend('Location', 'best');
-grid on;
-hold off;
-
-% 子图4：相位对比
-subplot(2, 2, 4);
-plot(1:length(npbchRx), angle(npbchRx)*180/pi, 'b.', 'MarkerSize', 8, 'DisplayName', '补偿前');
-hold on;
-plot(1:length(npbchEq), angle(npbchEq)*180/pi, 'g.', 'MarkerSize', 8, 'DisplayName', '补偿后');
-xlabel('符号索引');
-ylabel('相位 (度)');
-title('NPBCH符号相位对比');
-legend('Location', 'best');
-grid on;
-hold off;
-
 sgtitle(sprintf('NB-IoT NPBCH QPSK星座图分析 (PCID=%d)', detectedPCID), 'FontSize', 14, 'FontWeight', 'bold');
+% 自动保存当前图形
+timestamp = datestr(now, 'yyyymmdd_HHMMSS');
+saveas(gcf, ['figure_', timestamp, '.png']);
 
 %% 10. NPBCH解码和MIB解析
 fprintf('\n进行NPBCH解码...\n');
@@ -309,48 +344,6 @@ function result = iif(condition, true_val, false_val)
     else
         result = false_val;
     end
-end
-
-% 正确的QPSK EVM计算函数
-function evm_percent = calculateCorrectEVM(rxSymbols)
-    % 正确的QPSK EVM计算
-    qpsk_constellation = [1+1i, 1-1i, -1+1i, -1-1i] / sqrt(2);
-    
-    % 对每个接收符号找最近的理想符号
-    error_power = 0;
-    signal_power = 0;
-    
-    for i = 1:length(rxSymbols)
-        % 计算到所有理想符号的距离
-        distances = abs(rxSymbols(i) - qpsk_constellation);
-        [~, idx] = min(distances);
-        ideal_symbol = qpsk_constellation(idx);
-        
-        % 累计误差功率和信号功率
-        error_power = error_power + abs(rxSymbols(i) - ideal_symbol)^2;
-        signal_power = signal_power + abs(ideal_symbol)^2;
-    end
-    
-    % 计算EVM
-    evm_percent = sqrt(error_power / signal_power) * 100;
-end
-
-% NB-IoT配置验证函数
-function validateNBIoTConfig(enb)
-    % 验证NB-IoT配置参数
-    if ~isfield(enb, 'NNCellID') || enb.NNCellID < 0 || enb.NNCellID > 503
-        error('无效的NB-IoT小区ID，范围应为0-503');
-    end
-    
-    if ~isfield(enb, 'NBRefP') || (enb.NBRefP ~= 1 && enb.NBRefP ~= 2)
-        error('NB-IoT只支持1或2个天线端口');
-    end
-    
-    if ~isfield(enb, 'NDLRB') || enb.NDLRB ~= 6
-        error('NB-IoT固定使用6个RB');
-    end
-    
-    fprintf('NB-IoT配置验证通过\n');
 end
 
 %% 11. 保存结果和生成总结报告
@@ -440,11 +433,6 @@ else
     fprintf('原因: CRC校验错误\n');
 end
 
-fprintf('\n--- 处理验证 ---\n');
-fprintf('严格按照3GPP标准: ✓\n');
-fprintf('只使用官方LTE工具箱函数: ✓\n');
-fprintf('基于真实信号处理: ✓\n');
-fprintf('禁止人为构造数据: ✓\n');
 
 fprintf('\n--- 输出文件 ---\n');
 fprintf('星座图: MATLAB图形窗口\n');
